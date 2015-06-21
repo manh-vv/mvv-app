@@ -1,7 +1,6 @@
 package mvv.app.process;
 
 import java.util.List;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -30,7 +29,7 @@ public class MyChunkProcess {
         getExecutor(n > 0 ? n : 2);
     }
 
-    private static Executor getExecutor(int n) {
+    public static ExecutorService getExecutor(int n) {
         if (executor == null) {
             executor = Executors.newFixedThreadPool(n);
         }
@@ -39,18 +38,24 @@ public class MyChunkProcess {
     }
 
     public int process(MainClass waiter, List<DictionaryEntity> entityContainer) {
-        executor.execute(new InsertToDbTask(waiter, ++chunkCount, entityContainer));
+        if (entityContainer != null) {
+            executor.execute(new InsertToDbTask(waiter, ++chunkCount, entityContainer));
+            return 1;
+        }
 
-        return 1;
+        return 0;
     }
 
-    public void shutdown() {
+    public boolean shutdown() {
+        boolean b = false;
         try {
-            executor.awaitTermination(2, TimeUnit.MINUTES);
+            b = executor.awaitTermination(1, TimeUnit.MINUTES);
         } catch (InterruptedException e) {
             log.error(e.getMessage(), e);
         } finally {
             executor.shutdown();
         }
+
+        return b;
     }
 }

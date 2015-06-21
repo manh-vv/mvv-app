@@ -6,6 +6,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
 import mvv.app.entity.DictionaryEntity;
 import mvv.app.process.AbsTask;
@@ -20,16 +21,20 @@ public class MainClass {
 
     private SqliteHelper sqliteHelper;
     private MyChunkProcess chunkProcess;
-    public volatile boolean isWait;
+    public boolean isWait;
 
     public static void main(String[] args) {
         long t1 = System.currentTimeMillis();
         log.info("App start at {}, current directory: {}", t1, System.getProperty("user.dir"));
 
         MainClass mainClass = new MainClass();
-        mainClass.onStart();
-        mainClass.run();
-        mainClass.onFinish();
+        try {
+            mainClass.onStart();
+            mainClass.run();
+            mainClass.onFinish();
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
+        }
 
         long t2 = System.currentTimeMillis();
         log.info("App end at {}; executed time: {}", t2, t2 - t1);
@@ -42,7 +47,7 @@ public class MainClass {
     private void onStart() {
         sqliteHelper = new SqliteHelper("src/main/resources/mvvapp.db3");
         AbsTask.sqliteHelper = sqliteHelper;
-        chunkProcess = new MyChunkProcess(4);
+        chunkProcess = new MyChunkProcess(3);
     }
 
     /**
@@ -54,16 +59,20 @@ public class MainClass {
         FileReader fr = null;
         try {
             fr = new FileReader(fi);
-            BufferedReader br = new BufferedReader(fr);
+            BufferedReader br = new BufferedReader(fr, 16 * 1024);
 
-            final int PROCESS_SIZE = 100;
-            final int CHUNK_SIZE = 8;
+            final int PROCESS_SIZE = 200;
+            final int CHUNK_SIZE = 6;
             /* process chunk by chunk */
             List<DictionaryEntity> entityContainer = null;
             String line;
             int count = 0;
+            long t1 = 0;
             while ((line = br.readLine()) != null) {
-                if (entityContainer == null) entityContainer = new ArrayList<>(PROCESS_SIZE);
+                if (entityContainer == null) {
+                    t1 = System.currentTimeMillis();
+                    entityContainer = new ArrayList<>(PROCESS_SIZE);
+                }
 
                 int idx = line.indexOf('=');
                 if (idx > 0) {
@@ -76,22 +85,27 @@ public class MainClass {
 
                 if (entityContainer.size() == PROCESS_SIZE) {
                     /* spawn thread to process this chunk */
+                    log.debug("Read {} lines takes {} ms", entityContainer.size(), System.currentTimeMillis() - t1);
                     count += chunkProcess.process(this, entityContainer);
+
                     entityContainer = null;
 
                     if (count == CHUNK_SIZE) {
                         log.trace("chunk size rich {} -> wait untils previous thread finish", count);
+
                         synchronized (this) {
                             this.isWait = true;
                             this.wait();
                         }
-                        count = 0; // reset count
+
+                        count--; // reset count
                         log.trace("continue reading job");
                     }
                 }
             }
 
             chunkProcess.process(null, entityContainer);
+            log.debug("Read {} lines takes {} ms", entityContainer.size(), System.currentTimeMillis() - t1);
 
             br.close();
         } catch (IOException | InterruptedException e) {
@@ -110,7 +124,13 @@ public class MainClass {
      * @author Manh Vu
      */
     private void onFinish() {
-        chunkProcess.shutdown();
-        sqliteHelper.close();
+        boolean b = chunkProcess.shutdown();
+        if (b)
+            sqliteHelper.close();
+        else {
+            ExecutorService executor = MyChunkProcess.getExecutor(-1);
+            executor.shutdown();
+            sqliteHelper.close();
+        }
     }
 }

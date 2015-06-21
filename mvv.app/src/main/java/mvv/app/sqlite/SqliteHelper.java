@@ -8,10 +8,12 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
 import mvv.app.exception.HandleError;
+import mvv.app.utils.CollectionUtils;
 import mvv.app.utils.StringUtils;
 
 import org.apache.logging.log4j.LogManager;
@@ -25,8 +27,6 @@ public class SqliteHelper {
 
     private static Connection connection;
     private static Statement statement;
-
-    private volatile int waitForCommit;
 
     /**
      * @param string
@@ -63,39 +63,85 @@ public class SqliteHelper {
     }
 
     public <T> T insert(T t) throws SQLException {
-        String tableName = getTableName(t);
-        String idField = getIdField(t);
+        StringBuilder sb = buildInsert(t);
+        Map<Object, Type> fieldValueHolder = extractValue(t);
 
-        StringBuilder sb = new StringBuilder("insert into ");
+        PreparedStatement ps = connection.prepareStatement(sb.toString(), new String[] { getIdField(t) });
+        ps.closeOnCompletion();
+
+        int i = 1;
+        for (Entry<Object, Type> entry : fieldValueHolder.entrySet()) {
+            ps.setObject(i++, entry.getKey());
+        }
+
+        synchronized (this) {
+            ps.executeUpdate();
+            connection.commit();
+        }
+
+        return t;
+    }
+
+    public <T> void batchInsert(List<T> list) throws SQLException {
+        if (CollectionUtils.isEmpty(list)) return;
+
+        T t = list.get(0);
+        StringBuilder sb = buildInsert(t);
+
+        PreparedStatement ps = connection.prepareStatement(sb.toString(), new String[] { getIdField(t) });
+        ps.closeOnCompletion();
+
+        for (int i = 0; i < list.size(); i++) {
+            T tt = list.get(i);
+            Map<Object, Type> fieldValueHolder = extractValue(tt);
+
+            int c = 1;
+            for (Entry<Object, Type> entry : fieldValueHolder.entrySet()) {
+                ps.setObject(c++, entry.getKey());
+            }
+
+            ps.addBatch();
+        }
+
+        synchronized (this) {
+            ps.executeBatch();
+            connection.commit();
+        }
+    }
+
+    private <T> StringBuilder buildInsert(T t) {
+        String tableName = getTableName(t);
+
+        StringBuilder sb = new StringBuilder(40);
+        sb.append("insert into ");
         sb.append(tableName).append(" values (");
 
         Field[] fields = t.getClass().getFields();
-        Map<Object, Type> fielValueHolder = new LinkedHashMap<>(fields.length);
-        for (Field field : fields) {
-            try {
-                fielValueHolder.put(field.get(t), field.getGenericType());
-                sb.append(" ?,");
-            } catch (IllegalArgumentException | IllegalAccessException e) {
-                log.error(e.getMessage(), e);
-            }
+        for (int i = 0; i < fields.length; i++) {
+            sb.append(" ?,");
         }
 
         sb.delete(sb.length() - 1, sb.length());
         sb.append(')');
 
-        PreparedStatement ps = connection.prepareStatement(sb.toString(), new String[] { idField });
-        int i = 1;
-        for (Entry<Object, Type> entry : fielValueHolder.entrySet()) {
-            ps.setObject(i++, entry.getKey());
-        }
-
-        ps.executeUpdate();
-        waitForCommit++;
-
-        return t;
+        return sb;
     }
 
-    public <T> String getTableName(T t) {
+    private <T> Map<Object, Type> extractValue(T t) {
+        Field[] fields = t.getClass().getFields();
+        Map<Object, Type> fieldValueHolder = new LinkedHashMap<>(fields.length);
+        for (Field field : fields) {
+            try {
+                fieldValueHolder.put(field.get(t), field.getGenericType());
+            } catch (IllegalArgumentException | IllegalAccessException e) {
+                log.error(e.getMessage(), e);
+            }
+        }
+
+        return fieldValueHolder;
+    }
+
+    private <T> String getTableName(T t) {
         Entity entity = t.getClass().getAnnotation(Entity.class);
 
         if (entity == null || StringUtils.isEmpty(entity.value())) {
@@ -105,7 +151,7 @@ public class SqliteHelper {
         return entity.value();
     }
 
-    public <T> String getIdField(T t) {
+    private <T> String getIdField(T t) {
         String fieldName = null;
 
         Field[] fields = t.getClass().getFields();
@@ -129,21 +175,6 @@ public class SqliteHelper {
     public void close() {
         try {
             connection.close();
-        } catch (SQLException e) {
-            log.error(e.getMessage(), e);
-        }
-    }
-
-    /**
-     *
-     * @author Manh Vu
-     */
-    public synchronized void commit() {
-        try {
-            if(waitForCommit > 0)
-                connection.commit();
-
-            waitForCommit = 0;
         } catch (SQLException e) {
             log.error(e.getMessage(), e);
         }

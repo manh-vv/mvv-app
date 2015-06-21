@@ -29,15 +29,14 @@ public class InsertToDbTask extends AbsTask implements Runnable {
     public void run() {
         long t1 = System.currentTimeMillis();
         log.trace("{} start at {}", id, t1);
-        try {
-            for (DictionaryEntity entity : entityContainer) {
-                sqliteHelper.insert(entity);
-            }
 
-            sqliteHelper.commit();
-        } catch (SQLException e) {
+        try {
+            sqliteHelper.batchInsert(entityContainer);
+        } catch (Exception e) {
             log.error(e.getMessage(), e);
-            sqliteHelper.rollback();
+
+            if (e instanceof SQLException)
+                sqliteHelper.rollback();
         }
 
         if (waiter != null && waiter.isWait) {
