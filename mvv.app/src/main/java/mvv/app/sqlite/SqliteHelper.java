@@ -26,29 +26,43 @@ public class SqliteHelper {
     private static Connection connection;
     private static Statement statement;
 
+    private volatile int waitForCommit;
+
+    /**
+     * @param string
+     */
+    public SqliteHelper(String dbPath) {
+        try {
+            connect(dbPath);
+        } catch (ClassNotFoundException | SQLException e) {
+            log.error(e.getMessage(), e);
+        }
+    }
+
     /* run on application start */
-    public Connection connect() throws ClassNotFoundException, SQLException {
-        if (connection != null) return connection;
+    private Connection connect(String dbPath) throws ClassNotFoundException, SQLException {
+        if (connection == null) {
+            // load the sqlite-JDBC driver using the current class loader
+            Class.forName("org.sqlite.JDBC");
 
-        // load the sqlite-JDBC driver using the current class loader
-        Class.forName("org.sqlite.JDBC");
+            // create a database connection
+            connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+            connection.setAutoCommit(false);
+        }
 
-        Connection connection = null;
-        // create a database connection
-        connection = DriverManager.getConnection("jdbc:sqlite:mvvapp.db3");
         return connection;
     }
 
     public Statement getStatement() throws SQLException {
-        if (statement != null) return statement;
-
-        Statement statement = connection.createStatement();
-        statement.setQueryTimeout(10);
+        if (statement == null) {
+            statement = connection.createStatement();
+            statement.setQueryTimeout(10);
+        }
 
         return statement;
     }
 
-    public <T> T insert(T t) {
+    public <T> T insert(T t) throws SQLException {
         String tableName = getTableName(t);
         String idField = getIdField(t);
 
@@ -58,10 +72,9 @@ public class SqliteHelper {
         Field[] fields = t.getClass().getFields();
         Map<Object, Type> fielValueHolder = new LinkedHashMap<>(fields.length);
         for (Field field : fields) {
-            sb.append(" ?,");
-
             try {
                 fielValueHolder.put(field.get(t), field.getGenericType());
+                sb.append(" ?,");
             } catch (IllegalArgumentException | IllegalAccessException e) {
                 log.error(e.getMessage(), e);
             }
@@ -70,15 +83,14 @@ public class SqliteHelper {
         sb.delete(sb.length() - 1, sb.length());
         sb.append(')');
 
-        try {
-            PreparedStatement ps = connection.prepareStatement(sb.toString(), new String[] {idField});
-            int i = 0;
-            for(Entry<Object, Type> entry : fielValueHolder.entrySet()) {
-                ps.setObject(i++, entry.getKey());
-            }
-        } catch (SQLException e) {
-            log.error(e.getMessage(), e);
+        PreparedStatement ps = connection.prepareStatement(sb.toString(), new String[] { idField });
+        int i = 1;
+        for (Entry<Object, Type> entry : fielValueHolder.entrySet()) {
+            ps.setObject(i++, entry.getKey());
         }
+
+        ps.executeUpdate();
+        waitForCommit++;
 
         return t;
     }
@@ -108,5 +120,44 @@ public class SqliteHelper {
         if (StringUtils.isEmpty(fieldName)) throw new HandleError(t.getClass().getCanonicalName() + " missing id");
 
         return null;
+    }
+
+    /**
+     *
+     * @author Manh Vu
+     */
+    public void close() {
+        try {
+            connection.close();
+        } catch (SQLException e) {
+            log.error(e.getMessage(), e);
+        }
+    }
+
+    /**
+     *
+     * @author Manh Vu
+     */
+    public synchronized void commit() {
+        try {
+            if(waitForCommit > 0)
+                connection.commit();
+
+            waitForCommit = 0;
+        } catch (SQLException e) {
+            log.error(e.getMessage(), e);
+        }
+    }
+
+    /**
+     *
+     * @author Manh Vu
+     */
+    public void rollback() {
+        try {
+            connection.rollback();
+        } catch (SQLException e) {
+            log.error(e.getMessage(), e);
+        }
     }
 }
