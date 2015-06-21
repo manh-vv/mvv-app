@@ -62,11 +62,32 @@ public class SqliteHelper {
         return statement;
     }
 
+    public <T> void resetIndex(Class<T> clazz) throws SQLException {
+        StringBuilder sb = new StringBuilder(20);
+        sb.append("update sqlite_sequence set seq = 0 where name = ").append(boundBy(getTableName(clazz), "\""));
+
+        String qr = sb.toString();
+        log.trace(qr);
+
+        connection.createStatement().executeUpdate(qr);
+        connection.commit();
+    }
+
+    public <T> void deleteAll(Class<T> clazz) throws SQLException {
+        StringBuilder sb = new StringBuilder(20);
+        sb.append("delete from ").append(getTableName(clazz));
+
+        String qr = sb.toString();
+        log.trace(qr);
+
+        connection.createStatement().executeUpdate(qr);
+        connection.commit();
+    }
+
     public <T> T insert(T t) throws SQLException {
-        StringBuilder sb = buildInsert(t);
         Map<Object, Type> fieldValueHolder = extractValue(t);
 
-        PreparedStatement ps = connection.prepareStatement(sb.toString(), new String[] { getIdField(t) });
+        PreparedStatement ps = connection.prepareStatement(buildInsert(t.getClass()), new String[] { getIdField(t.getClass()) });
         ps.closeOnCompletion();
 
         int i = 1;
@@ -86,9 +107,7 @@ public class SqliteHelper {
         if (CollectionUtils.isEmpty(list)) return;
 
         T t = list.get(0);
-        StringBuilder sb = buildInsert(t);
-
-        PreparedStatement ps = connection.prepareStatement(sb.toString(), new String[] { getIdField(t) });
+        PreparedStatement ps = connection.prepareStatement(buildInsert(t.getClass()), new String[] { getIdField(t.getClass()) });
         ps.closeOnCompletion();
 
         for (int i = 0; i < list.size(); i++) {
@@ -109,14 +128,14 @@ public class SqliteHelper {
         }
     }
 
-    private <T> StringBuilder buildInsert(T t) {
-        String tableName = getTableName(t);
+    private <T> String buildInsert(Class<T> clazz) {
+        String tableName = getTableName(clazz);
 
         StringBuilder sb = new StringBuilder(40);
         sb.append("insert into ");
         sb.append(tableName).append(" values (");
 
-        Field[] fields = t.getClass().getFields();
+        Field[] fields = clazz.getFields();
         for (int i = 0; i < fields.length; i++) {
             sb.append(" ?,");
         }
@@ -124,7 +143,10 @@ public class SqliteHelper {
         sb.delete(sb.length() - 1, sb.length());
         sb.append(')');
 
-        return sb;
+        String qr = sb.toString();
+        log.trace(qr);
+
+        return qr;
     }
 
     private <T> Map<Object, Type> extractValue(T t) {
@@ -141,20 +163,38 @@ public class SqliteHelper {
         return fieldValueHolder;
     }
 
-    private <T> String getTableName(T t) {
-        Entity entity = t.getClass().getAnnotation(Entity.class);
+    /**
+     * @author Manh Vu
+     */
+    private String boundBy(String s, String textOrChar) {
+        if (StringUtils.isEmpty(s)) {
+            throw new HandleError("param is invalid: " + s);
+        }
+
+        if (StringUtils.isEmpty(textOrChar)) {
+            throw new HandleError("param is invalid: " + textOrChar);
+        }
+
+        StringBuilder sb = new StringBuilder(s.length() + textOrChar.length());
+        sb.append(textOrChar).append(s).append(textOrChar);
+
+        return sb.toString();
+    }
+
+    private <T> String getTableName(Class<T> clazz) {
+        Entity entity = clazz.getAnnotation(Entity.class);
 
         if (entity == null || StringUtils.isEmpty(entity.value())) {
-            throw new HandleError(t.getClass().getCanonicalName() + " is not an valid entity");
+            throw new HandleError(clazz.getCanonicalName() + " is not an valid entity");
         }
 
         return entity.value();
     }
 
-    private <T> String getIdField(T t) {
+    private <T> String getIdField(Class<T> clazz) {
         String fieldName = null;
 
-        Field[] fields = t.getClass().getFields();
+        Field[] fields = clazz.getFields();
         for (Field field : fields) {
             Id id = field.getAnnotation(Id.class);
             if (id != null) {
@@ -163,7 +203,7 @@ public class SqliteHelper {
             }
         }
 
-        if (StringUtils.isEmpty(fieldName)) throw new HandleError(t.getClass().getCanonicalName() + " missing id");
+        if (StringUtils.isEmpty(fieldName)) throw new HandleError(clazz.getCanonicalName() + " missing id");
 
         return null;
     }

@@ -46,16 +46,15 @@ public class MyChunkProcess {
         return 0;
     }
 
-    public boolean shutdown() {
-        boolean b = false;
+    public void shutdown() {
         try {
-            b = executor.awaitTermination(1, TimeUnit.MINUTES);
+            executor.shutdown();
+            executor.awaitTermination(1, TimeUnit.MINUTES);
         } catch (InterruptedException e) {
             log.error(e.getMessage(), e);
         } finally {
             executor.shutdown();
         }
 
-        return b;
     }
 }
