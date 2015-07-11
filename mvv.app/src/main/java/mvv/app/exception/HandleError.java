@@ -1,5 +1,6 @@
 package mvv.app.exception;
 
+
 /**
  * @author Manh Vu
  */
@@ -20,6 +21,14 @@ public class HandleError extends RuntimeException {
      */
     public HandleError(String message, Throwable cause) {
         super(message, cause);
+    }
+
+
+    /**
+     * @param e
+     */
+    public HandleError(Throwable e) {
+        super(e);
     }
 
 }

@@ -13,6 +13,7 @@ import mvv.app.exception.HandleError;
 import mvv.app.process.AbsTask;
 import mvv.app.process.MyChunkProcess;
 import mvv.app.sqlite.SqliteHelper;
+import mvv.app.utils.StringCompressor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,7 +47,7 @@ public class MainClass {
      * @author Manh Vu
      */
     private void onStart() {
-        sqliteHelper = new SqliteHelper("src/main/resources/mvvapp.db3");
+        sqliteHelper = new SqliteHelper("src/main/resources/mvvapp-zip-2.db3");
 
         try {
             sqliteHelper.deleteAll(DictionaryEntity.class);
@@ -70,7 +71,7 @@ public class MainClass {
             fr = new FileReader(fi);
             BufferedReader br = new BufferedReader(fr, 16 * 1024);
 
-            final int PROCESS_SIZE = 100000;
+            final int PROCESS_SIZE = 20000;
             final int CHUNK_SIZE = 6;
             /* process chunk by chunk */
             List<DictionaryEntity> entityContainer = null;
@@ -87,7 +88,9 @@ public class MainClass {
                 if (idx > 0) {
                     DictionaryEntity entity = new DictionaryEntity();
                     entity.word = line.substring(0, idx);
-                    entity.definition = line.substring(idx + 3);
+
+                    String def = line.substring(idx + 3);
+                    entity.definition = StringCompressor.compress(def);
 
                     entityContainer.add(entity);
                 } else {
@@ -125,6 +128,7 @@ public class MainClass {
         } finally {
             try {
                 if (fr != null) fr.close();
+
             } catch (IOException e) {
                 log.error(e.getMessage(), e);
             }

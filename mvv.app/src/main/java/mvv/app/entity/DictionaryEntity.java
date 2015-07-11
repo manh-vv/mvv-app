@@ -11,5 +11,5 @@ public class DictionaryEntity {
     @Id(true)
     public Integer id;
     public String word;
-    public String definition;
+    public byte[] definition;
 }

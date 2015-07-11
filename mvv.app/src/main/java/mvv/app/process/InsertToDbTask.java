@@ -19,10 +19,10 @@ public class InsertToDbTask extends AbsTask implements Runnable {
     private MainClass waiter;
     private String id;
 
-    public InsertToDbTask(MainClass waiter, int chunkCount, List<DictionaryEntity> entityContainer) {
+    public InsertToDbTask(MainClass waiter, int taskId, List<DictionaryEntity> entityContainer) {
         this.waiter = waiter;
         this.entityContainer = entityContainer;
-        this.id = "Chunk index: " + chunkCount;
+        this.id = "InsertToDbTask index: " + taskId;
     }
 
     @Override
